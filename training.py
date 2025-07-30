@@ -1,70 +1,75 @@
-import argparse
-import os
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms, utils
 import torch
-import numpy as np
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+from torchvision.utils import save_image
+import os
 
-#from vae import VAE
-from utils import save_image_grid, interpolate_latents
+from emoji_vae import VAE
 
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default='vae')
-    parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--latent_dim', type=int, default=100)
-    parser.add_argument('--data_dir', type=str, default='./data/emojis')
-    parser.add_argument('--output_dir', type=str, default='./outputs')
-    parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
-    return parser.parse_args()
+LATENT_DIM = 32
+LEARNING_RATE = 1e-3
+BATCH_SIZE = 32
+EPOCHS = 100
 
-def load_data(data_dir, batch_size):
-    transform = transforms.Compose([
-        transforms.Resize((64, 64)),
-        transforms.ToTensor()
-    ])
-    dataset = datasets.ImageFolder(root=data_dir, transform=transform)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+DATA_DIR = 'training_data'
+RESULTS_DIR = 'results'
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
-def train_vae(args, dataloader):
-    from torch import nn, optim
-    model = VAE(latent_dim=args.latent_dim).to(args.device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    loss_fn = nn.BCELoss(reduction='sum')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    os.makedirs(f"{args.output_dir}/reconstructions", exist_ok=True)
-    os.makedirs(f"{args.output_dir}/generations", exist_ok=True)
+transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=1),
+    transforms.ToTensor()
+])
+dataset = datasets.ImageFolder(root=DATA_DIR, transform=transform)
+dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-    for epoch in range(args.epochs):
-        total_loss = 0
-        for imgs, _ in dataloader:
-            imgs = imgs.to(args.device)
-            recon, mu, logvar = model(imgs)
-            recon_loss = loss_fn(recon, imgs)
-            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            loss = recon_loss + kl_div
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        print(f"Epoch {epoch + 1} - Loss: {total_loss:.2f}")
+model = VAE(latent_dim=LATENT_DIM).to(device)
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-        with torch.no_grad():
-            sample = next(iter(dataloader))[0][:16].to(args.device)
-            recon, _, _ = model(sample)
-            save_image_grid(recon, f"{args.output_dir}/reconstructions/recon_epoch{epoch+1}.png")
+def loss_function(recon_x, x, mu, log_var):
+    # Reconstruction Loss + KL Divergence
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 1, 64, 64), reduction='sum')
+    KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+    return BCE + KLD
 
-            z = torch.randn(16, args.latent_dim).to(args.device)
-            generated = model.decode(z)
-            save_image_grid(generated, f"{args.output_dir}/generations/sample_epoch{epoch+1}.png")
+print(f"Starting training on {device}...")
+fixed_batch, _ = next(iter(dataloader))
+fixed_batch = fixed_batch.to(device)
+save_image(fixed_batch, os.path.join(RESULTS_DIR, 'original_images.png'))
 
-    torch.save(model.state_dict(), f"{args.output_dir}/vae_model.pth")
+loss_history = []
 
-def main():
-    args = get_args()
-    dataloader = load_data(args.data_dir, args.batch_size)
-    train_vae(args, dataloader)
+for epoch in range(EPOCHS):
+    model.train()
+    train_loss = 0
+    for i, (data, _) in enumerate(dataloader):
+        data = data.to(device)
+        optimizer.zero_grad()
+        
+        recon_batch, mu, log_var = model(data)
+        loss = loss_function(recon_batch, data, mu, log_var)
+        train_loss += loss.item()
+        
+        loss.backward()
+        optimizer.step()
 
-if __name__ == "__main__":
-    main()
+    avg_loss = train_loss / len(dataloader.dataset)
+    print(f'====> Epoch: {epoch+1} Average loss: {avg_loss:.4f}')
+    loss_history.append(avg_loss)
+
+    model.eval()
+    with torch.no_grad():
+        recon_fixed, _, _ = model(fixed_batch)
+        save_image(recon_fixed, os.path.join(RESULTS_DIR, f'reconstructed_epoch_{epoch+1}.png'))
+        
+        random_noise = torch.randn(BATCH_SIZE, LATENT_DIM).to(device)
+        generated_images = model.decode(random_noise)
+        save_image(generated_images, os.path.join(RESULTS_DIR, f'generated_epoch_{epoch+1}.png'))
+
+print("Training finished!")
+torch.save(loss_history, 'loss_history.pt')
+torch.save(model.state_dict(), 'vae_model.pt')
+print("Loss history and model weights saved.")
