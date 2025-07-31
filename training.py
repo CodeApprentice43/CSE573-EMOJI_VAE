@@ -8,12 +8,12 @@ from utils import save_image_grid, interpolate_latents
 from vae import VAE
 
 def get_args():
-    parser = argparse.AbutrgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='vae')
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--latent_dim', type=int, default=100)
-    parser.add_argument('--data_dir', type=str, default='./data/emojis')
+    parser.add_argument('--data_dir', type=str, default='./data/training_data')
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     return parser.parse_args()
@@ -39,6 +39,12 @@ def train_vae(args, dataloader):
 
     os.makedirs(f"{args.output_dir}/reconstructions", exist_ok=True)
     os.makedirs(f"{args.output_dir}/generations", exist_ok=True)
+
+    import glob
+    for folder in ["reconstructions", "generations"]:
+        files = glob.glob(os.path.join(args.output_dir, folder, "*.png"))
+        for f in files:
+            os.remove(f)
 
     fixed_batch, _ = next(iter(dataloader))
     fixed_batch = fixed_batch.to(args.device)

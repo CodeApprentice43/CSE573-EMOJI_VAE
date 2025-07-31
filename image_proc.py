@@ -2,7 +2,7 @@ from PIL import Image
 import os
 
 input_dir = "./original_data"
-output_dir = "./training_data"
+output_dir = "./data/training_data/emojis"
 target_size = (64, 64)
 
 os.makedirs(output_dir, exist_ok=True)
