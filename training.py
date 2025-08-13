@@ -15,10 +15,10 @@ from vae import VAE
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='vae')
-    parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--latent_dim', type=int, default=32)
-    parser.add_argument('--data_dir', type=str, default='./data/training_data')
+    parser.add_argument('--epochs', type=int, default=1000)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--latent_dim', type=int, default=128)
+    parser.add_argument('--data_dir', type=str, default='./training_data')
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     return parser.parse_args()
@@ -26,15 +26,17 @@ def get_args():
 def load_data(data_dir, batch_size):
     transform = transforms.Compose([
         transforms.Grayscale(num_output_channels=1),
-        transforms.ToTensor()
+        transforms.Resize((128, 128)),
+        transforms.ToTensor(),
     ])
     dataset = datasets.ImageFolder(root=data_dir, transform=transform)
     return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-def loss_function(recon_x, x, mu, log_var):
-    bce = torch.nn.functional.binary_cross_entropy(recon_x, x.view(-1, 1, 64, 64), reduction='sum') #use sum reduction for higher loss gradient
+def loss_function(recon_x, x, mu, log_var, beta=.5):
+    mse = torch.nn.functional.mse_loss(recon_x, x, reduction='sum')
     kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-    return bce + kld #total loss sum
+    return mse + beta * kld
+
 
 #for computing additional metrics like MAE, SSIM, and PSNR as shown in the sample doc
 def compute_metrics(recon, real):
@@ -79,7 +81,7 @@ def plot_loss_and_metrics(loss_history, mae_list, ssim_list, psnr_list, output_d
 
 def train_vae(args, dataloader):
     model = VAE(latent_dim=args.latent_dim).to(args.device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
 
     os.makedirs(f"{args.output_dir}/reconstructions", exist_ok=True)
     os.makedirs(f"{args.output_dir}/generations", exist_ok=True)
@@ -115,16 +117,18 @@ def train_vae(args, dataloader):
         model.eval()
         with torch.no_grad():
             recon, _, _ = model(fixed_batch)
-            utils.save_image(recon, f"{args.output_dir}/reconstructions/recon_epoch{epoch+1}.png")
 
             z = torch.randn(16, args.latent_dim).to(args.device)
             generated = model.decode(z)
-            utils.save_image(generated, f"{args.output_dir}/generations/sample_epoch{epoch+1}.png")
 
             mae, ssim, psnr = compute_metrics(recon, fixed_batch)
             mae_list.append(mae)
             ssim_list.append(ssim)
             psnr_list.append(psnr)
+
+            if epoch == 0 or (epoch + 1) % 10 == 0:
+                utils.save_image(recon, f"{args.output_dir}/reconstructions/recon_epoch{epoch+1}.png")
+                utils.save_image(generated, f"{args.output_dir}/generations/sample_epoch{epoch+1}.png")
 
     torch.save(loss_history, os.path.join(args.output_dir, 'loss_history.pt'))
     torch.save(model.state_dict(), os.path.join(args.output_dir, 'vae_model.pt'))
@@ -132,6 +136,7 @@ def train_vae(args, dataloader):
 
 def main():
     args = get_args()
+    print("Using device:", args.device)
     dataloader = load_data(args.data_dir, args.batch_size)
     train_vae(args, dataloader)
 
