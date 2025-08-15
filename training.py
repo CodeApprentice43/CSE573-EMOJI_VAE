@@ -15,9 +15,9 @@ from vae import VAE
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='vae')
-    parser.add_argument('--epochs', type=int, default=1000)
+    parser.add_argument('--epochs', type=int, default=2000)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--latent_dim', type=int, default=128)
+    parser.add_argument('--latent_dim', type=int, default=64)
     parser.add_argument('--data_dir', type=str, default='./training_data')
     parser.add_argument('--output_dir', type=str, default='./outputs')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
@@ -25,8 +25,7 @@ def get_args():
 
 def load_data(data_dir, batch_size):
     transform = transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((128, 128)),
+        transforms.Resize((64, 64)),
         transforms.ToTensor(),
     ])
     dataset = datasets.ImageFolder(root=data_dir, transform=transform)
