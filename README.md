@@ -1,7 +1,10 @@
 # CSE573-EMOJI_VAE
 
 ## Disclaimer
-    This document assumes that the code is being ran locally since we are submitting the zip file directly. For best results, run on a CUDA GPU as the code is setup to detect CUDA automatically during training. 
+This document assumes that the code is being ran locally since we are 
+submitting the zip file directly. For best results, run on a CUDA GPU 
+as the code is setup to detect CUDA automatically during training.
+
 ## Setup
 
 1. **Create and activate virtual python environment**
